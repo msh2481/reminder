@@ -21,3 +21,46 @@ Setting up the Google Calendar API
 9. On the "OAuth client created" screen that pops up, click "Download JSON".
 
 Save the file as `credentials.json` in the root of the project.
+
+Running the MVP
+---------------
+
+This MVP is split into two processes:
+- a foreground **daemon** that talks to Google Calendar and listens on a Unix socket
+- short-lived **CLI commands** that send one JSON request and print a response
+
+Start the daemon (foreground)
+-----------------------------
+
+In one terminal:
+
+```bash
+uv run python main.py start
+```
+
+Query the next N events (next 30 days)
+-------------------------------------
+
+In another terminal:
+
+```bash
+uv run python main.py next 5
+```
+
+Trigger a reminder (spawns iTerm2)
+---------------------------------
+
+```bash
+uv run python main.py test
+uv run python main.py test --important
+```
+
+When triggered, the daemon:
+- plays `beep.wav` (via `afplay`)
+- spawns a new iTerm2 window to run `main.py show <id> [--important]`
+
+Notes
+-----
+- Socket path: `/tmp/remind.sock`
+- Acknowledgements are **in-memory only** for MVP (they reset when the daemon stops).
+- macOS terminal spawning currently targets **iTerm2** via `osascript`.
