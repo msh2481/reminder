@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import socket
 import time
@@ -113,6 +114,7 @@ class DaemonState:
 
             inserted, changed = self._upsert_occurrence(
                 event_id=e.id,
+                summary=e.summary,
                 start_utc=start_utc,
                 end_utc=end_utc,
                 all_day=all_day,
@@ -177,6 +179,7 @@ class DaemonState:
         self,
         *,
         event_id: str,
+        summary: str,
         start_utc: int,
         end_utc: int,
         all_day: int,
@@ -193,9 +196,19 @@ class DaemonState:
             last_seen_utc=last_seen_utc,
         )
         if inserted:
-            logger.info("occurrence added event_id={} start_local={}", event_id, _utc_to_local_iso(start_utc))
+            logger.info(
+                "occurrence added event_id={} start_local={} summary={!r}",
+                event_id,
+                _utc_to_local_iso(start_utc),
+                summary,
+            )
         elif changed:
-            logger.info("occurrence updated event_id={} start_local={}", event_id, _utc_to_local_iso(start_utc))
+            logger.info(
+                "occurrence updated event_id={} start_local={} summary={!r}",
+                event_id,
+                _utc_to_local_iso(start_utc),
+                summary,
+            )
         return inserted, changed
 
     def spawn_reminder(self, reminder_id: str, *, important: bool) -> None:
@@ -266,6 +279,9 @@ class DaemonState:
 
 def _handle_request(state: DaemonState, req: dict[str, Any]) -> dict[str, Any]:
     cmd = req.get("cmd")
+    if cmd == "ping":
+        return {"ok": True, "now_utc": _now_utc(), "pid": os.getpid()}
+
     if cmd == "sync":
         state.sync()
         return {"ok": True}

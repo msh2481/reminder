@@ -7,5 +7,7 @@ credentials.json
 token.json
 
 # Runtime artifacts
-reminder.db
+reminder.db*
 daemon.log
+launchd.out.log
+launchd.err.log

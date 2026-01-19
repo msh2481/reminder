@@ -64,3 +64,33 @@ Notes
 - Socket path: `/tmp/remind.sock`
 - Persistent state is stored in `reminder.db` in the project root (survives daemon restarts).
 - macOS terminal spawning currently targets **iTerm2** via `osascript`.
+
+Run on startup (macOS)
+----------------------
+
+To keep the daemon running reliably, install the LaunchAgent:
+
+1) Copy the included plist into LaunchAgents:
+
+```bash
+cp com.mike.reminder.plist ~/Library/LaunchAgents/
+```
+
+2) Load it (starts now, and on login):
+
+```bash
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.mike.reminder.plist
+launchctl enable gui/$UID/com.mike.reminder
+launchctl kickstart -k gui/$UID/com.mike.reminder
+```
+
+3) Check status:
+
+```bash
+launchctl print gui/$UID/com.mike.reminder | head
+```
+
+Notes:
+- `com.mike.reminder.plist` is hardcoded to this repo path. If you move the repo, update `WorkingDirectory` and `UV_PROJECT_DIR`.
+- The first OAuth run may need browser authorization to create `token.json`. Run `uv run python main.py start` once manually if needed.
+ - If `launchd.err.log` shows `uv: No such file or directory`, update `ProgramArguments` in the plist to your `uv` path (`command -v uv`).

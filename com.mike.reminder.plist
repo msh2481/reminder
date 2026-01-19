@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.mike.reminder</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mike/Desktop/reminder</string>
+
+    <!--
+      launchd does not load your interactive shell environment.
+      Use an absolute path to uv for reliability.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/mike/.local/bin/uv</string>
+      <string>run</string>
+      <string>python</string>
+      <string>main.py</string>
+      <string>start</string>
+    </array>
+
+    <!-- Optional: capture launchd stdout/stderr (daemon itself logs to daemon.log). -->
+    <key>StandardOutPath</key>
+    <string>/Users/mike/Desktop/reminder/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mike/Desktop/reminder/launchd.err.log</string>
+  </dict>
+</plist>
+
