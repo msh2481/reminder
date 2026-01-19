@@ -38,6 +38,93 @@ def start(
     )
 
 
+@app.command()
+def ping() -> None:
+    """
+    Check whether the daemon is reachable.
+    """
+    try:
+        resp = send_request(SOCKET_PATH, {"cmd": "ping"})
+    except DaemonUnavailableError as e:
+        print(f"{e}. Start it with: uv run python main.py start")
+        raise typer.Exit(code=1)
+
+    data = _require_ok(resp)
+    print(f"ok pid={data.get('pid')} now_utc={data.get('now_utc')}")
+
+
+@app.command()
+def due(n: int = typer.Argument(10, metavar="N")) -> None:
+    """
+    List due reminders.
+    """
+    if n < 1:
+        raise typer.Exit(code=2)
+
+    try:
+        resp = send_request(SOCKET_PATH, {"cmd": "due", "limit": n})
+    except DaemonUnavailableError as e:
+        print(f"{e}. Start it with: uv run python main.py start")
+        raise typer.Exit(code=1)
+
+    data = _require_ok(resp)
+    rs = data.get("reminders") or []
+    if not rs:
+        print("No due reminders.")
+        return
+
+    for r in rs:
+        print(
+            f"{r.get('trigger_local','?')}  {r.get('id')}  "
+            f"{r.get('rule_name') or 'custom'}  {r.get('event_id')}"
+        )
+
+
+@app.command()
+def pending(n: int = typer.Argument(10, metavar="N")) -> None:
+    """
+    List next pending (future) reminders.
+    """
+    if n < 1:
+        raise typer.Exit(code=2)
+
+    try:
+        resp = send_request(SOCKET_PATH, {"cmd": "pending", "limit": n})
+    except DaemonUnavailableError as e:
+        print(f"{e}. Start it with: uv run python main.py start")
+        raise typer.Exit(code=1)
+
+    data = _require_ok(resp)
+    rs = data.get("reminders") or []
+    if not rs:
+        print("No pending reminders.")
+        return
+
+    for r in rs:
+        print(
+            f"{r.get('trigger_local','?')}  {r.get('id')}  "
+            f"{r.get('rule_name') or 'custom'}  {r.get('event_id')}"
+        )
+
+
+@app.command("regen-rules")
+def regen_rules() -> None:
+    """
+    Regenerate rule-based reminders (best-effort).
+
+    This restores future rule reminders that were previously marked fired (e.g. via older test behavior),
+    and then runs a sync pass to ensure missing rule reminders exist.
+    """
+    try:
+        resp = send_request(SOCKET_PATH, {"cmd": "regen_rules"})
+    except DaemonUnavailableError as e:
+        print(f"{e}. Start it with: uv run python main.py start")
+        raise typer.Exit(code=1)
+
+    data = _require_ok(resp)
+    print(f"ok unfired={data.get('unfired')}")
+
+
 @app.command("next")
 def next_events(n: int = typer.Argument(..., metavar="N")) -> None:
     """

@@ -576,3 +576,22 @@ def cancel_unseen_rule_reminders(
     )
     return int(cur.rowcount)
 
+
+def reset_future_fired_rule_reminders(conn: sqlite3.Connection, *, now_utc: int) -> int:
+    """
+    "Regenerate" helper: if a rule reminder was marked fired in the past (e.g. via testing),
+    but its trigger time is still in the future, clear fired_utc so it can fire normally later.
+    """
+    cur = conn.execute(
+        """
+        UPDATE rule_reminders
+        SET fired_utc = NULL
+        WHERE fired_utc IS NOT NULL
+          AND trigger_utc > ?
+          AND acked_utc IS NULL
+          AND cancelled_utc IS NULL
+        """,
+        (now_utc,),
+    )
+    return int(cur.rowcount)
+

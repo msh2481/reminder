@@ -25,6 +25,7 @@ from db import (
     list_next_pending_reminders,
     mark_fired,
     migrate,
+    reset_future_fired_rule_reminders,
 )
 from gcal import Event, GoogleCalendarClient, day_range
 from log import configure_logger
@@ -276,6 +277,51 @@ class DaemonState:
         self.last_spawn_utc = now_utc
         return rid
 
+    def spawn_test_reminder(self, *, important: bool) -> str | None:
+        """
+        Spawn a reminder UI without consuming any rule-based reminders.
+
+        Implementation: create a one-off custom reminder row with trigger=now, mark it fired,
+        and spawn `show-reminder` for that custom reminder.
+        """
+        now_utc = _now_utc()
+        events = self.refresh_events()
+        chosen: Event | None = None
+        for e in events:
+            if e.id:
+                chosen = e
+                break
+        if chosen is None or not chosen.id:
+            return None
+
+        occ_start_utc = to_utc_epoch_seconds(chosen.start)
+        occ = get_occurrence(self.conn, event_id=chosen.id, start_utc=occ_start_utc)
+        if occ is None:
+            # Best-effort: ensure occurrences exist.
+            self.sync()
+
+        occ = get_occurrence(self.conn, event_id=chosen.id, start_utc=occ_start_utc)
+        if occ is None or occ.dropped:
+            return None
+
+        custom_id = insert_custom_reminder(
+            self.conn,
+            event_id=chosen.id,
+            occ_start_utc=occ_start_utc,
+            trigger_utc=now_utc,
+            requires_ack=(1 if important else 0),
+            created_utc=now_utc,
+        )
+        ref = ReminderRef("custom", custom_id)
+        mark_fired(self.conn, ref, fired_utc=now_utc)
+        self.conn.commit()
+
+        rid = ref.to_external_id()
+        logger.info("reminder test-spawned id={} event_id={} summary={!r}", rid, chosen.id, chosen.summary)
+        self.spawn_reminder(rid, important=important)
+        self.last_spawn_utc = now_utc
+        return rid
+
 
 def _handle_request(state: DaemonState, req: dict[str, Any]) -> dict[str, Any]:
     cmd = req.get("cmd")
@@ -285,6 +331,15 @@ def _handle_request(state: DaemonState, req: dict[str, Any]) -> dict[str, Any]:
     if cmd == "sync":
         state.sync()
         return {"ok": True}
+
+    if cmd == "regen_rules":
+        now_utc = _now_utc()
+        unfired = reset_future_fired_rule_reminders(state.conn, now_utc=now_utc)
+        state.conn.commit()
+        # Ensure any missing rule reminders are recreated (still won't create past triggers).
+        state.sync()
+        logger.info("regen_rules complete unfired_future_rule_reminders={}", unfired)
+        return {"ok": True, "unfired": unfired}
 
     if cmd == "next":
         limit = int(req.get("limit", 5))
@@ -311,10 +366,34 @@ def _handle_request(state: DaemonState, req: dict[str, Any]) -> dict[str, Any]:
                     "event_id": r.event_id,
                     "occ_start_utc": r.occ_start_utc,
                     "trigger_utc": r.trigger_utc,
+                    "trigger_local": _utc_to_local_iso(r.trigger_utc),
                     "requires_ack": bool(r.requires_ack),
                     "rule_name": r.rule_name,
                 }
                 for r in due
+            ],
+        }
+
+    if cmd == "pending":
+        limit = int(req.get("limit", 10))
+        if limit < 1:
+            return {"ok": False, "error": "limit_must_be_positive"}
+        now_utc = _now_utc()
+        pending = list_next_pending_reminders(state.conn, now_utc=now_utc, limit=limit)
+        return {
+            "ok": True,
+            "reminders": [
+                {
+                    "id": r.ref.to_external_id(),
+                    "kind": r.ref.kind,
+                    "event_id": r.event_id,
+                    "occ_start_utc": r.occ_start_utc,
+                    "trigger_utc": r.trigger_utc,
+                    "trigger_local": _utc_to_local_iso(r.trigger_utc),
+                    "requires_ack": bool(r.requires_ack),
+                    "rule_name": r.rule_name,
+                }
+                for r in pending
             ],
         }
 
@@ -446,10 +525,9 @@ def _handle_request(state: DaemonState, req: dict[str, Any]) -> dict[str, Any]:
 
     if cmd == "test":
         important = bool(req.get("important", False))
-        # Ensure we have some data to test with.
         if state.last_sync_utc == 0:
             state.sync()
-        rid = state.fire_one_any(important=important)
+        rid = state.spawn_test_reminder(important=important)
         if rid is None:
             return {"ok": False, "error": "no_reminders"}
         return {"ok": True, "reminder_id": rid}
