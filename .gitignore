@@ -5,3 +5,7 @@ __pycache__/
 # Google OAuth secrets / tokens
 credentials.json
 token.json
+
+# Runtime artifacts
+reminder.db
+daemon.log

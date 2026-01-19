@@ -11,7 +11,7 @@ Setting up the Google Calendar API
 2. Left sidebar > "Credentials" > "Create Credentials" > "OAuth Client ID"
 3. If your consent screen isn't configured, click the "Configure consent screen" button. Pick between Internal and External per your preference.
 4. Configure the consent screen:
-    * App name: gcal-tui (or whatever you want)
+    * App name: reminder (or whatever you want)
     * User support email: (your email)
     * Developer contact information: (your email)
 5. Once at the scopes screen, click "Add or Remove Scopes". Type `calendar.events` and select the googleapis.com URL that appears. Click the checkbox to the left of the item you've just added.
@@ -57,10 +57,10 @@ uv run python main.py test --important
 
 When triggered, the daemon:
 - plays `beep.wav` (via `afplay`)
-- spawns a new iTerm2 window to run `main.py show <id> [--important]`
+- spawns a new iTerm2 window to run `main.py show-reminder <id> [--important]`
 
 Notes
 -----
 - Socket path: `/tmp/remind.sock`
-- Acknowledgements are **in-memory only** for MVP (they reset when the daemon stops).
+- Persistent state is stored in `reminder.db` in the project root (survives daemon restarts).
 - macOS terminal spawning currently targets **iTerm2** via `osascript`.

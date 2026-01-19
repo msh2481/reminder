@@ -58,8 +58,11 @@ class Event:
             # All-day events are date-only; end is typically next day.
             start_date = date.fromisoformat(start_date_str)
             end_date = date.fromisoformat(end_date_str)
-            start = datetime.combine(start_date, time.min, tz)
-            end = datetime.combine(end_date, time.min, tz)
+            # Normalize all-day events at load time:
+            # treat them as ordinary timed events starting at 09:00 local.
+            start = datetime.combine(start_date, time(9, 0), tz)
+            # Preserve duration in whole days (Google end is exclusive, typically next day).
+            end = datetime.combine(end_date, time(9, 0), tz)
             all_day = True
         else:
             # Fallback: treat missing times as unknown, but keep the object valid.
