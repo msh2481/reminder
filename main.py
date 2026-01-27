@@ -74,9 +74,10 @@ def due(n: int = typer.Argument(10, metavar="N")) -> None:
         return
 
     for r in rs:
+        summary = r.get("summary") or r.get("event_id")
         print(
             f"{r.get('trigger_local','?')}  {r.get('id')}  "
-            f"{r.get('rule_name') or 'custom'}  {r.get('event_id')}"
+            f"{r.get('rule_name') or 'custom'}  {summary}"
         )
 
 
@@ -101,9 +102,10 @@ def pending(n: int = typer.Argument(10, metavar="N")) -> None:
         return
 
     for r in rs:
+        summary = r.get("summary") or r.get("event_id")
         print(
             f"{r.get('trigger_local','?')}  {r.get('id')}  "
-            f"{r.get('rule_name') or 'custom'}  {r.get('event_id')}"
+            f"{r.get('rule_name') or 'custom'}  {summary}"
         )
 
 
