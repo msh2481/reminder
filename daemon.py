@@ -55,20 +55,48 @@ def _event_to_dict(e: Event) -> dict[str, Any]:
 
 @dataclass
 class DaemonState:
-    gcal: GoogleCalendarClient
+    gcal: GoogleCalendarClient | None
     project_root: Path
     db_path: Path
     sync_interval_s: int = 60
     spawn_throttle_s: int = 10
     last_sync_utc: int = 0
     last_spawn_utc: int = 0
+    gcal_error: str | None = None
+    gcal_error_notified: bool = False
     event_cache: dict[str, Event] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.conn = connect(self.db_path)
         migrate(self.conn)
 
+    def _notify_gcal_error(self, reason: str) -> None:
+        """
+        Best-effort: beep + spawn an iTerm2 window with re-auth instructions.
+        """
+        if self.gcal_error_notified:
+            return
+        self.gcal_error_notified = True
+
+        try:
+            play_sound(self.project_root / "beep.wav")
+        except Exception:
+            pass
+
+        try:
+            cmd = (
+                f"cd {shlex.quote(str(self.project_root))}"
+                f" && uv run python main.py gcal-error --reason {shlex.quote(reason)}"
+                f"; exit"
+            )
+            spawn_terminal(cmd)
+        except Exception:
+            # If iTerm2 isn't available, at least log it.
+            logger.exception("failed to spawn gcal-error notification terminal")
+
     def refresh_events(self) -> list[Event]:
+        if self.gcal is None:
+            return []
         now, end = day_range(0, 30)
         # Pull more than we typically need so "next N" and "test" work reliably.
         events = self.gcal.list_events(start=now, end=end, max_results=2500)
@@ -93,6 +121,18 @@ class DaemonState:
         """
         started_utc = _now_utc()
         t0 = time.time()
+
+        if self.gcal is None:
+            self.last_sync_utc = started_utc
+            logger.error("sync skipped: Google Calendar auth not available (see launchd.err.log / token.json)")
+            return {
+                "seen_from_gcal": 0,
+                "occ_upserted": 0,
+                "occ_changed": 0,
+                "rule_changed": 0,
+                "rule_cancelled_unseen": 0,
+                "skipped_past": 0,
+            }
 
         now_local, end_local = day_range(0, 30)
         events = self.gcal.list_events(start=now_local, end=end_local, max_results=2500)
@@ -326,7 +366,13 @@ class DaemonState:
 def _handle_request(state: DaemonState, req: dict[str, Any]) -> dict[str, Any]:
     cmd = req.get("cmd")
     if cmd == "ping":
-        return {"ok": True, "now_utc": _now_utc(), "pid": os.getpid()}
+        return {
+            "ok": True,
+            "now_utc": _now_utc(),
+            "pid": os.getpid(),
+            "gcal_ok": state.gcal is not None,
+            "gcal_error": state.gcal_error,
+        }
 
     if cmd == "sync":
         state.sync()
@@ -555,13 +601,29 @@ def run(
         str(project_root / "reminder.db"),
     )
 
+    gcal: GoogleCalendarClient | None
+    gcal_error: str | None = None
+    try:
+        gcal = GoogleCalendarClient(credentials_path=credentials_path, token_path=token_path)
+    except Exception as e:
+        gcal = None
+        gcal_error = f"{type(e).__name__}: {e}"
+        logger.exception("GoogleCalendarClient init failed; daemon will run without GCal until re-auth")
+
     state = DaemonState(
-        gcal=GoogleCalendarClient(credentials_path=credentials_path, token_path=token_path),
+        gcal=gcal,
         project_root=project_root,
         db_path=project_root / "reminder.db",
+        gcal_error=gcal_error,
     )
-    # Initial sync so scheduler has data.
-    state.sync()
+    if state.gcal is None and state.gcal_error:
+        state._notify_gcal_error(state.gcal_error)
+    # Initial sync so scheduler has data (best-effort; don't crash the daemon).
+    try:
+        state.sync()
+    except Exception:
+        logger.exception("initial sync failed; continuing")
+        state.last_sync_utc = _now_utc()
 
     sock_file = Path(sock_path)
     if sock_file.exists():
@@ -577,9 +639,21 @@ def run(
                 # Scheduler tick
                 now_utc = _now_utc()
                 if now_utc - state.last_sync_utc >= state.sync_interval_s:
-                    state.sync()
-                # Fire overdue reminders (catch-up behavior) + due reminders.
-                state.fire_one_due(important=False, ignore_throttle=False)
+                    try:
+                        state.sync()
+                    except Exception:
+                        # Don't crash/restart under launchd on transient network/API failures.
+                        logger.exception("sync failed; will retry later")
+                        state.gcal_error = "sync_failed"
+                        # Notify only once; for many auth failures, the exception already contains guidance.
+                        state._notify_gcal_error("sync_failed (see daemon.log/launchd.err.log)")
+                        state.last_sync_utc = now_utc
+
+                # Fire overdue reminders (catch-up behavior) + due reminders (best-effort).
+                try:
+                    state.fire_one_due(important=False, ignore_throttle=False)
+                except Exception:
+                    logger.exception("fire_one_due failed; continuing")
 
                 try:
                     conn, _ = server.accept()

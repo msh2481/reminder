@@ -38,6 +38,31 @@ def start(
     )
 
 
+@app.command("gcal-error")
+def gcal_error(
+    reason: str = typer.Option("", "--reason"),
+) -> None:
+    """
+    Show a Google Calendar auth error (used by daemon notifications).
+    """
+    print("Google Calendar connection failed.")
+    if reason:
+        print()
+        print(f"Reason: {reason}")
+    print()
+    print("How to fix:")
+    print("1) Stop the LaunchAgent (or kill the daemon process).")
+    print("2) Delete token.json in the project root.")
+    print("3) Run once manually to re-authorize (opens browser):")
+    print("   uv run python main.py start")
+    print("4) Restart the LaunchAgent (./restart.sh).")
+    print()
+    try:
+        input("Press Enter to close...")
+    except KeyboardInterrupt:
+        pass
+
+
 @app.command()
 def ping() -> None:
     """
